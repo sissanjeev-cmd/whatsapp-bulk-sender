@@ -35,9 +35,9 @@ except ImportError as e:
 
 # ═══════════════════════ CONFIGURATION ═══════════════════════════════════════
 
-EXCEL_FILE   = r"/Volumes/NO NAME/Claude/CA_Delhi_Contacts V2.0.xlsx"
-WORD_FILE    = r"/Volumes/NO NAME/Claude/Message Draft.docx"
-LOG_FILE     = r"/Volumes/NO NAME/Claude/whatsapp_send_log.txt"
+EXCEL_FILE   = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/CA_Delhi_Contacts V2.0.xlsx"
+WORD_FILE    = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/Message Draft.docx"
+LOG_FILE     = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/whatsapp_send_log.txt"
 
 COUNTRY_CODE = "+91"          # India — change if needed (e.g. "+1" for USA)
 
