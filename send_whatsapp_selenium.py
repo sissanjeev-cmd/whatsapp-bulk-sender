@@ -43,9 +43,9 @@ except ImportError as e:
 
 # ═══════════════════════ CONFIGURATION ═══════════════════════════════════════
 
-EXCEL_FILE    = r"/Volumes/NO NAME/Claude/CA_Delhi_Contacts V2.0.xlsx"
-WORD_FILE     = r"/Volumes/NO NAME/Claude/Message Draft.docx"
-LOG_FILE      = r"/Volumes/NO NAME/Claude/whatsapp_selenium_log.txt"
+EXCEL_FILE    = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/CA_Delhi_Contacts V2.0.xlsx"
+WORD_FILE     = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/Message Draft.docx"
+LOG_FILE      = r"/Users/sanjeevgarg/Videos Using Claude/ca-lead-capture-demo-booking/whatsapp_selenium_log.txt"
 
 # Session profile — saves your WhatsApp Web login so you only scan QR once
 CHROME_PROFILE = str(Path.home() / "whatsapp_chrome_profile")
