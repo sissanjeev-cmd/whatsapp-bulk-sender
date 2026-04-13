@@ -50,11 +50,17 @@ LOG_FILE      = r"/Volumes/NO NAME/Claude/whatsapp_selenium_log.txt"
 # Session profile — saves your WhatsApp Web login so you only scan QR once
 CHROME_PROFILE = str(Path.home() / "whatsapp_chrome_profile")
 
-COUNTRY_CODE  = "+91"   # India
+COUNTRY_CODE   = "+91"   # India — change if needed (e.g. "+1" for USA)
 
-# Seconds to wait for each page/element to load. Increase on slow internet.
-PAGE_LOAD_WAIT = 20     # wait for chat to open
-SEND_WAIT      = 3      # pause after hitting Send before next contact
+# Seconds to wait for each chat to open. Increase on slow internet.
+PAGE_LOAD_WAIT = 30
+
+# Seconds to pause after hitting Send before moving to next contact
+SEND_WAIT      = 3
+
+# Skip the first N rows (useful for resuming after a partial send)
+# e.g. set to 33 to skip contacts 1–33 and start from contact 34
+START_FROM_ROW = 0
 
 # Set True to print messages without sending (safe test)
 DRY_RUN        = False
@@ -125,67 +131,97 @@ def launch_browser(profile_dir: str) -> webdriver.Chrome:
     return driver
 
 
-def wait_for_whatsapp_ready(driver: webdriver.Chrome, timeout: int, logger):
-    """Wait until WhatsApp Web is fully loaded (search box visible)."""
-    logger.info("Waiting for WhatsApp Web to load …")
-    logger.info("  → Scan the QR code with your phone if prompted.")
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located(
-                (By.XPATH, '//div[@contenteditable="true"][@data-tab="3"]')
-            )
-        )
-        logger.info("  ✓ WhatsApp Web is ready")
-    except Exception:
-        logger.error("  ✗ Timed out waiting for WhatsApp Web. Exiting.")
-        driver.quit()
-        sys.exit(1)
+def wait_for_whatsapp(driver: webdriver.Chrome, timeout: int,
+                      logger: logging.Logger) -> bool:
+    """
+    Poll multiple selectors until WhatsApp Web is ready.
+    Gives up to `timeout` seconds — enough time to scan the QR code.
+    """
+    logger.info(f"Waiting up to {timeout}s for WhatsApp Web "
+                f"(scan QR code if prompted) …")
+    selectors = [
+        (By.XPATH,        '//div[@contenteditable="true"][@data-tab="3"]'),
+        (By.XPATH,        '//div[@data-tab="3"]'),
+        (By.CSS_SELECTOR, 'div[data-tab="3"]'),
+        (By.XPATH,        '//div[@aria-label="Search input textbox"]'),
+        (By.XPATH,        '//*[@id="side"]'),
+        (By.CSS_SELECTOR, '#side'),
+    ]
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for by, sel in selectors:
+            try:
+                el = driver.find_element(by, sel)
+                if el.is_displayed():
+                    logger.info("✓ WhatsApp Web is ready")
+                    return True
+            except Exception:
+                pass
+        time.sleep(2)
+    return False
 
 
-def send_message_selenium(driver, phone: str, message: str,
-                           page_wait: int, send_wait: int,
-                           logger: logging.Logger):
+def send_message_selenium(driver: webdriver.Chrome, phone: str, message: str,
+                          page_wait: int, send_wait: int,
+                          logger: logging.Logger):
     """
-    Navigate to the chat for `phone` via the wa.me URL trick,
-    then type and send the message — all in the same tab.
+    Navigate to the chat for `phone` via wa.me URL with pre-filled text,
+    then hit Enter to send — all in the same tab.
     """
-    encoded = urllib.parse.quote(message)
-    url     = f"https://web.whatsapp.com/send?phone={phone}&text={encoded}"
+    url = (f"https://web.whatsapp.com/send"
+           f"?phone={phone}&text={urllib.parse.quote(message)}")
     driver.get(url)
 
-    # Wait for the message input box to appear (chat has loaded)
-    try:
-        box = WebDriverWait(driver, page_wait).until(
-            EC.presence_of_element_located(
-                (By.XPATH, '//div[@contenteditable="true"][@data-tab="10"]')
+    # Try multiple XPaths for the message input box
+    box = None
+    for xpath in [
+        '//div[@contenteditable="true"][@data-tab="10"]',
+        '//div[@data-tab="10"]',
+        '//footer//div[@contenteditable="true"]',
+    ]:
+        try:
+            box = WebDriverWait(driver, page_wait).until(
+                EC.presence_of_element_located((By.XPATH, xpath))
             )
-        )
-        time.sleep(1)          # short settle pause
-        box.send_keys(Keys.ENTER)   # send the pre-filled message
-        time.sleep(send_wait)
-    except Exception as e:
-        raise RuntimeError(f"Could not find/send message input: {e}")
+            if box:
+                break
+        except Exception:
+            pass
+
+    if not box:
+        raise RuntimeError("Message input box not found — "
+                           "number may not be on WhatsApp")
+
+    time.sleep(1.5)
+    box.send_keys(Keys.ENTER)
+    time.sleep(send_wait)
 
 
 def main():
     logger = setup_logging(LOG_FILE)
     logger.info("=" * 60)
     logger.info("WhatsApp Selenium Sender — started")
-    logger.info(f"Excel  : {EXCEL_FILE}")
-    logger.info(f"Word   : {WORD_FILE}")
-    logger.info(f"Dry run: {DRY_RUN}")
+    logger.info(f"Excel      : {EXCEL_FILE}")
+    logger.info(f"Word       : {WORD_FILE}")
+    logger.info(f"Start row  : {START_FROM_ROW + 1}")
+    logger.info(f"Dry run    : {DRY_RUN}")
     logger.info("=" * 60)
 
     contacts = read_contacts(EXCEL_FILE)
-    logger.info(f"Contacts loaded: {len(contacts)}")
+    logger.info(f"Total contacts loaded: {len(contacts)}")
 
     template = read_template(WORD_FILE)
-    logger.info(f"Template loaded: {template[:60].strip()} …")
+    logger.info(f"Template: {template[:60].strip()} …")
 
+    remaining = contacts.iloc[START_FROM_ROW:]
+    logger.info(f"Sending to {len(remaining)} contacts "
+                f"(rows {START_FROM_ROW + 1}–{len(contacts)})")
+
+    # ── Dry run ───────────────────────────────────────────────────────────────
     if DRY_RUN:
         logger.info("DRY RUN — printing messages only, not sending.")
-        for idx, row in contacts.iterrows():
-            msg = personalise(template, row["Name"])
+        for idx, row in remaining.iterrows():
+            msg   = personalise(template, row["Name"])
             phone = format_number(row["Mobile"], COUNTRY_CODE)
             logger.info(f"[{idx+1:>3}] {row['Name']:<30} | {phone}")
             logger.debug(f"        {msg[:80]} …")
@@ -196,12 +232,19 @@ def main():
     logger.info("Launching Chrome …")
     driver = launch_browser(CHROME_PROFILE)
     driver.get("https://web.whatsapp.com")
-    wait_for_whatsapp_ready(driver, timeout=60, logger=logger)
+
+    if not wait_for_whatsapp(driver, timeout=180, logger=logger):
+        logger.error("Timed out — WhatsApp Web did not load. "
+                     "Please scan QR and retry.")
+        driver.quit()
+        sys.exit(1)
+
+    time.sleep(3)   # let the UI fully settle after login
 
     # ── Send loop ─────────────────────────────────────────────────────────────
     sent = 0; failed = 0; skipped = 0
 
-    for idx, row in contacts.iterrows():
+    for idx, row in remaining.iterrows():
         name   = str(row["Name"]).strip()
         mobile = str(row["Mobile"]).strip()
         phone  = format_number(mobile, COUNTRY_CODE)
